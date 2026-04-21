@@ -48,6 +48,29 @@ class TrainedSMSDemo:
 
         from anomaly_sms.reporting import heuristic_explanation
 
+        known_spam_percent = round(
+            (
+                float(supervised_scores["logistic_regression_score"])
+                + float(supervised_scores["multinomial_nb_score"])
+            )
+            / 2
+            * 100,
+            2,
+        )
+        new_pattern_percent = round(agreement_score * 100, 2)
+        final_scam_percent = round(max(known_spam_percent, new_pattern_percent), 2)
+
+        if known_spam_percent >= 70 and new_pattern_percent >= 67:
+            final_reason = "Matches known spam wording and also looks suspicious in a new-pattern check."
+        elif known_spam_percent >= 70:
+            final_reason = "Matches known spam or scam wording strongly."
+        elif new_pattern_percent >= 67:
+            final_reason = "Does not match a common known pattern strongly, but still looks suspicious."
+        elif known_spam_percent >= 40 or new_pattern_percent >= 33:
+            final_reason = "Shows some suspicious signals. Handle carefully."
+        else:
+            final_reason = "Does not strongly match scam or spam behavior."
+
         return {
             "text": text,
             "clean_text": clean,
@@ -59,8 +82,14 @@ class TrainedSMSDemo:
             "agreement_score": agreement_score,
             "ensemble_prediction": ensemble_prediction,
             "heuristic_reason": heuristic_explanation(explanation_row, self.feature_builder),
-            "risk_percent": round(agreement_score * 100, 2),
+            "risk_percent": new_pattern_percent,
             "risk_level": risk_level_from_score(agreement_score),
+            "supervised_spam_percent": known_spam_percent,
+            "known_spam_percent": known_spam_percent,
+            "new_pattern_percent": new_pattern_percent,
+            "final_scam_percent": final_scam_percent,
+            "final_scam_label": final_scam_label(final_scam_percent),
+            "final_reason": final_reason,
         }
 
     def score_messages(self, texts: list[str]) -> pd.DataFrame:
@@ -70,10 +99,12 @@ class TrainedSMSDemo:
             rows.append(
                 {
                     "message": text,
-                    "risk_percent": result["risk_percent"],
-                    "risk_level": result["risk_level"],
+                    "risk_percent": result["final_scam_percent"],
+                    "risk_level": result["final_scam_label"],
                     "agreement_score": result["agreement_score"],
                     "anomaly_votes": sum(result["unsupervised_predictions"].values()),
+                    "known_spam_percent": result["known_spam_percent"],
+                    "new_pattern_percent": result["new_pattern_percent"],
                 }
             )
         return pd.DataFrame(rows).sort_values(
@@ -90,6 +121,18 @@ def risk_level_from_score(score: float) -> str:
     if score >= 1 / 3:
         return "Medium"
     if score > 0:
+        return "Low"
+    return "Very Low"
+
+
+def final_scam_label(score: float) -> str:
+    if score >= 80:
+        return "Very High"
+    if score >= 60:
+        return "High"
+    if score >= 40:
+        return "Medium"
+    if score >= 20:
         return "Low"
     return "Very Low"
 

@@ -58,8 +58,8 @@ def _summary_value(summary: dict[str, object], key: str, fallback: object = 0) -
 
 def main() -> None:
     st.set_page_config(page_title="SMS Risk Checker", layout="wide")
-    st.title("SMS Risk Checker")
-    st.caption("Train on SMS data first, then check how risky a new message looks.")
+    st.title("SMS Scam Checker")
+    st.caption("Train on SMS data first, then check whether a new message looks like spam or scam.")
 
     with st.sidebar:
         st.subheader("Train Model")
@@ -81,8 +81,8 @@ def main() -> None:
         **What this app does**
 
         1. It learns from your SMS dataset.
-        2. It understands what normal messages usually look like.
-        3. You can then paste a new message and see its risk level.
+        2. It learns common spam patterns and also watches for suspicious new patterns.
+        3. You can then paste a new message and get a simple scam/spam risk result.
         """
     )
 
@@ -180,56 +180,55 @@ def main() -> None:
             st.warning("Enter a message first.")
         else:
             result = demo.predict_message(text)
-            risk_percent = result["risk_percent"]
-            risk_level = result["risk_level"]
-            progress_value = min(max(int(round(risk_percent)), 0), 100)
+            final_scam_percent = float(result["final_scam_percent"])
+            final_scam_label = result["final_scam_label"]
+            known_spam_percent = float(result["known_spam_percent"])
+            new_pattern_percent = float(result["new_pattern_percent"])
+            progress_value = min(max(int(round(final_scam_percent)), 0), 100)
+
+            st.subheader("Result")
+            metric_left, metric_right = st.columns(2)
+            metric_left.metric("Scam / Spam Risk", f"{final_scam_percent:.0f}%", final_scam_label)
+            metric_right.metric("Known Spam Match", f"{known_spam_percent:.0f}%")
 
             st.progress(progress_value)
-            st.subheader(f"Risk: {risk_percent:.0f}% ({risk_level})")
 
-            if result["ensemble_prediction"] == 1:
-                st.error("This message looks suspicious.")
+            if final_scam_percent >= 60:
+                st.error("This message should be treated as spam or scam.")
+            elif final_scam_percent >= 40:
+                st.warning("This message looks suspicious. Be careful before trusting it.")
             else:
-                st.success("This message does not look strongly suspicious.")
+                st.success("This message does not strongly look like spam or scam.")
 
-            st.write("Reason:", result["heuristic_reason"])
+            st.write("Reason:", result["final_reason"])
+            st.caption(
+                "The system combines a known-spam checker with a new-pattern detector, so common spam is not treated as normal."
+            )
 
-            simple_votes = pd.DataFrame(
+            summary_frame = pd.DataFrame(
                 [
                     {
-                        "Model": "Isolation Forest",
-                        "Decision": _format_binary_label(
-                            result["unsupervised_predictions"]["isolation_forest"],
-                            "Suspicious",
-                            "Normal",
-                        ),
+                        "Check": "Known spam match",
+                        "Value": f"{known_spam_percent:.0f}%",
                     },
                     {
-                        "Model": "One-Class SVM",
-                        "Decision": _format_binary_label(
-                            result["unsupervised_predictions"]["one_class_svm"],
-                            "Suspicious",
-                            "Normal",
-                        ),
+                        "Check": "New suspicious pattern",
+                        "Value": f"{new_pattern_percent:.0f}%",
                     },
                     {
-                        "Model": "LOF",
-                        "Decision": _format_binary_label(
-                            result["unsupervised_predictions"]["lof"],
-                            "Suspicious",
-                            "Normal",
-                        ),
+                        "Check": "Final scam / spam risk",
+                        "Value": f"{final_scam_percent:.0f}%",
                     },
                 ]
             )
-            st.dataframe(simple_votes, use_container_width=True, hide_index=True)
+            st.dataframe(summary_frame, use_container_width=True, hide_index=True)
 
-            with st.expander("More details"):
+            with st.expander("Technical details"):
                 supervised_frame = pd.DataFrame(
                     [
                         {
                             "Model": "Logistic Regression",
-                            "Prediction": _format_binary_label(
+                            "Decision": _format_binary_label(
                                 result["supervised_predictions"]["logistic_regression"],
                                 "Spam",
                                 "Ham",
@@ -241,7 +240,7 @@ def main() -> None:
                         },
                         {
                             "Model": "Naive Bayes",
-                            "Prediction": _format_binary_label(
+                            "Decision": _format_binary_label(
                                 result["supervised_predictions"]["multinomial_nb"],
                                 "Spam",
                                 "Ham",
@@ -250,6 +249,33 @@ def main() -> None:
                                 float(result["supervised_scores"]["multinomial_nb_score"]) * 100,
                                 2,
                             ),
+                        },
+                        {
+                            "Model": "Isolation Forest",
+                            "Decision": _format_binary_label(
+                                result["unsupervised_predictions"]["isolation_forest"],
+                                "Suspicious",
+                                "Normal",
+                            ),
+                            "Score": round(float(result["unsupervised_scores"]["isolation_forest_score"]), 4),
+                        },
+                        {
+                            "Model": "One-Class SVM",
+                            "Decision": _format_binary_label(
+                                result["unsupervised_predictions"]["one_class_svm"],
+                                "Suspicious",
+                                "Normal",
+                            ),
+                            "Score": round(float(result["unsupervised_scores"]["one_class_svm_score"]), 4),
+                        },
+                        {
+                            "Model": "LOF",
+                            "Decision": _format_binary_label(
+                                result["unsupervised_predictions"]["lof"],
+                                "Suspicious",
+                                "Normal",
+                            ),
+                            "Score": round(float(result["unsupervised_scores"]["lof_score"]), 4),
                         },
                     ]
                 )
@@ -267,13 +293,14 @@ def main() -> None:
         display_examples = risk_examples.rename(
             columns={
                 "message": "Message",
-                "risk_percent": "Risk %",
+                "risk_percent": "Scam Risk %",
                 "risk_level": "Risk level",
-                "anomaly_votes": "Model votes",
+                "known_spam_percent": "Known Spam %",
+                "new_pattern_percent": "New Pattern %",
             }
         )
         st.dataframe(
-            display_examples[["Message", "Risk %", "Risk level", "Model votes"]],
+            display_examples[["Message", "Scam Risk %", "Risk level", "Known Spam %", "New Pattern %"]],
             use_container_width=True,
             hide_index=True,
         )
