@@ -1,6 +1,22 @@
-# SMS Spam Detection With Unsupervised and Supervised ML
+# SMS Scam and Spam Detection Using Classical ML
 
-This mini project compares supervised and unsupervised approaches for suspicious SMS detection. It learns normal communication behavior, flags anomalous messages, and then compares that behavior against standard text classifiers.
+This mini project detects suspicious SMS messages using a combination of:
+
+- supervised learning for known spam patterns
+- unsupervised learning for new or unusual suspicious patterns
+
+The project is built around a practical idea:
+
+`A user only wants to know whether a message looks like scam/spam or not.`
+
+So the final system combines both types of models into one scam-focused decision.
+
+## Models Used
+
+Supervised models:
+
+- Logistic Regression
+- Multinomial Naive Bayes
 
 Unsupervised models:
 
@@ -8,26 +24,48 @@ Unsupervised models:
 - One-Class SVM
 - Local Outlier Factor (LOF)
 
-Supervised baselines:
+## Core Idea
 
-- Logistic Regression
-- Multinomial Naive Bayes
+The project uses two internal signals:
 
-The key project novelty is an agreement-based ensemble score:
+1. `Known Spam Match`
+   This comes from the supervised models.
+   It helps catch common spam or scam messages that look similar to patterns already present in the dataset.
 
-`agreement_score = (IF + SVM + LOF) / 3`
+2. `New Suspicious Pattern`
+   This comes from the unsupervised models.
+   It helps catch unusual or previously unseen scam styles.
 
-Messages flagged by multiple models are treated as more reliable anomalies.
+Final user-facing result:
+
+- `Scam / Spam Risk`
+
+The final risk is designed so that common spam is not treated as safe just because the unsupervised models did not flag it.
+
+## Why Both Supervised and Unsupervised?
+
+Supervised models are very strong when the spam pattern is already known.
+
+Unsupervised models are useful because in real life:
+
+- new scam formats appear often
+- wording changes frequently
+- not every new attack style exists in training data
+
+So the project story is:
+
+- supervised models catch known spam well
+- unsupervised models help when a suspicious message follows a newer pattern
 
 ## Project Highlights
 
-- Keeps the anomaly detectors label-free while adding supervised baselines for comparison
-- Combines `TF-IDF` text signals with handcrafted structural features
-- Supports `ham-only` or `full-train` unsupervised training strategies
-- Compares supervised, unsupervised, and ensemble performance in one report
-- Injects synthetic "new spam" messages to simulate real-world distribution shift
-- Exports metrics, predictions, agreement summaries, and case-study examples
-- Includes a smoke test with a synthetic SMS dataset
+- Uses `TF-IDF + handcrafted features`
+- Supports `ham_only` or `all` for unsupervised training
+- Includes supervised and unsupervised model comparison
+- Includes synthetic suspicious-message generation for stress testing
+- Provides a lightweight Streamlit UI for live demo
+- Runs on CPU only
+- Includes unit tests
 
 ## Folder Structure
 
@@ -40,7 +78,7 @@ Messages flagged by multiple models are treated as more reliable anomalies.
 |   |-- inference.py
 |   |-- models.py
 |   |-- pipeline.py
-|   `-- reporting.py
+|   |-- reporting.py
 |   `-- shift.py
 |-- data/
 |   `-- raw/
@@ -54,17 +92,23 @@ Messages flagged by multiple models are treated as more reliable anomalies.
 
 ## Dataset
 
-Recommended dataset: `SMS Spam Collection Dataset`
+Recommended dataset:
+
+- `SMS Spam Collection Dataset`
 
 Supported layouts:
 
 - `label,message`
-- `v1,v2` (common Kaggle export)
-- raw UCI-style tab-separated file with `ham<TAB>message`
+- `v1,v2`
+- raw tab-separated format like `ham<TAB>message`
 
-Place the dataset anywhere on disk and pass it with `--data`.
+Recommended local path:
 
-Example expected rows:
+```text
+data/raw/SMSSpamCollection
+```
+
+Example:
 
 ```text
 label,message
@@ -78,13 +122,13 @@ spam,WIN a FREE prize now!!! Click http://spam.example
 python -m pip install -r requirements.txt
 ```
 
-## Run
+## Run The Offline Pipeline
 
 ```bash
 python main.py --data "data/raw/SMSSpamCollection" --output-dir outputs
 ```
 
-Useful options:
+Useful examples:
 
 ```bash
 python main.py --data "data/raw/SMSSpamCollection" --train-strategy ham_only --max-features 1500 --test-size 0.3
@@ -94,80 +138,174 @@ python main.py --data "data/raw/SMSSpamCollection" --train-strategy ham_only --m
 python main.py --data "data/raw/SMSSpamCollection" --synthetic-spam-count 30 --supervised-spam-fraction 0.5
 ```
 
-## Demo UI
-
-Launch the lightweight Streamlit demo:
+## Run The Demo UI
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-What it does:
+The Streamlit app:
 
-- trains the project models from your SMS dataset
-- lets you paste a new message into one simple input box
-- shows a clear risk percentage and risk level
-- shows whether the three anomaly models think the message is suspicious
-- lists 40 generated suspicious examples and how risky each one looks
+- trains the models from the SMS dataset
+- lets the user paste a new SMS
+- shows `Scam / Spam Risk`
+- shows `Known Spam Match`
+- shows `New Suspicious Pattern`
+- gives a short human-readable reason
+- lists 40 generated suspicious examples with their risk levels
 
-Recommended dataset location for easiest launch:
+## How The System Works
 
-```text
-data/raw/SMSSpamCollection
-```
+### 1. Data Loading
 
-## What The Pipeline Does
+The dataset loader:
 
-1. Loads and standardizes the SMS dataset schema
-2. Cleans text for TF-IDF
-3. Extracts structural features:
-   - message length
-   - word count
-   - digit count
-   - URL count
-   - special-character count
-   - uppercase count
-   - uppercase ratio
-4. Combines `TF-IDF + structural features`
-5. Trains unsupervised models on normal-heavy behavior
-6. Trains `LogisticRegression` and `MultinomialNB` on labeled training data
-7. Generates an agreement score and ensemble prediction
-8. Builds a synthetic "new spam" evaluation set with terms like `UPI`, `crypto`, `OTP fraud`
-9. Evaluates each model on:
-   - original test data
-   - synthetic shifted spam only
-   - combined shifted test data
-10. Reports:
-   - precision
-   - recall
-   - F1-score
-   - accuracy
-11. Exports analysis examples showing agreement and disagreement cases
+- reads CSV, TSV, or TXT input
+- finds label and text columns automatically
+- standardizes them to:
+  - `label`
+  - `text`
+  - `is_anomaly`
+
+`ham -> 0`
+
+`spam -> 1`
+
+### 2. Text Cleaning
+
+The text is cleaned before feature extraction:
+
+- lowercase conversion
+- URL replacement with a token
+- punctuation cleanup
+- whitespace cleanup
+
+### 3. Feature Engineering
+
+The project uses two feature groups.
+
+Text features:
+
+- TF-IDF
+- up to `1500` features by default
+- unigrams and bigrams
+
+Structural features:
+
+- message length
+- word count
+- digit count
+- URL count
+- special character count
+- uppercase count
+- uppercase ratio
+
+Final feature vector:
+
+- `TF-IDF + structural features`
+
+### 4. Unsupervised Training
+
+The anomaly models are:
+
+- Isolation Forest
+- One-Class SVM
+- LOF
+
+These models do not learn direct `spam` labels.
+
+Instead, they learn which messages look normal or familiar.
+
+Two modes are supported:
+
+- `ham_only`
+  - anomaly models train only on normal messages
+- `all`
+  - anomaly models train on all training messages
+
+Important:
+
+- `ham_only` applies only to the unsupervised models
+- supervised models are trained separately
+
+### 5. Supervised Training
+
+The supervised models are:
+
+- Logistic Regression
+- Multinomial Naive Bayes
+
+These use labels directly and learn known spam patterns.
+
+The spam amount used in supervised training can be reduced with:
+
+- `supervised_spam_fraction`
+
+This helps simulate limited exposure to known spam examples.
+
+### 6. Final Decision Logic
+
+The app internally computes:
+
+- `Known Spam Match`
+  - average supervised spam confidence
+- `New Suspicious Pattern`
+  - unsupervised agreement score
+
+Then it creates the final user-facing decision:
+
+- `Scam / Spam Risk`
+
+Current practical rule:
+
+- common known spam should still be flagged even if unsupervised models do not consider it unusual
+- suspicious new-looking messages can also be flagged even when they do not perfectly match known spam wording
+
+## Evaluation
+
+The project compares:
+
+- supervised models
+- unsupervised models
+- the unsupervised ensemble
+
+Metrics used:
+
+- Accuracy
+- Precision
+- Recall
+- F1 Score
+
+The offline pipeline also supports synthetic suspicious-message evaluation to simulate distribution shift.
 
 ## Outputs
 
-After a run, the project saves:
+After running the offline pipeline, the project saves:
 
-- `metrics.csv` - performance comparison of each detector and the ensemble
-- `predictions.csv` - row-level predictions, scores, and source tags
-- `agreement_summary.csv` - vote distribution summary
-- `case_studies.csv` - curated examples with heuristic explanations
-- `run_config.json` - configuration used for the run
+- `metrics.csv`
+- `predictions.csv`
+- `agreement_summary.csv`
+- `case_studies.csv`
+- `run_config.json`
 
-## Suggested Project Story
+## Suggested Report Story
 
-You can present the project as:
+You can explain the project like this:
 
-- A lightweight anomaly detector for suspicious SMS messages
-- A comparison of supervised and unsupervised detectors
-- An agreement-based ensemble that improves reliability over single-model decisions
-- A synthetic distribution-shift test showing why anomaly detection matters for unseen spam
-- A lightweight real-time UI that demonstrates practical usability
-- A practical CPU-friendly approach suitable for classroom and laptop execution
+- Supervised learning performs best on known spam patterns.
+- Unsupervised learning is weaker on standard labeled benchmarks but useful for suspicious new patterns.
+- A practical scam detector should not rely on only one of them.
+- So this system combines both ideas into a single scam/spam risk output.
 
-## Expected Insight
+## Current Demo Message
 
-In many runs, `LogisticRegression` and `MultinomialNB` will do very well on the original test set because they learn known spam words directly. On the synthetic shifted set, those supervised models may drop when the attack language changes. The unsupervised models often have lower headline accuracy on the standard split, but they can still flag these unseen suspicious messages because the structure and token patterns look abnormal.
+For a normal user, the app should be explained simply:
+
+- paste an SMS
+- see if it looks like scam/spam
+- get a risk score and short reason
+
+The user does not need to understand anomaly detection terminology.
 
 ## Testing
 
